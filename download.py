@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import os.path
+import argparse
 from dataclasses import dataclass, field
 from collections import Counter
 from pathlib import Path
@@ -269,9 +270,18 @@ def download_missing_files(courses: List[Course], basedir: Path, total: int, ser
                     download_file(material, filepath, service_drive, credentials)
                     i += 1
 
+def parse_command_line():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-o', '--output', help='destination directory')
+    parser.add_argument('-l', '--list', action='store_true', help='list content')
+    parser.add_argument('-c', '--course', help='course id')
+    parser.add_argument('-m', '--material', help='material id')
+    args = parser.parse_args()
+    args.output = Path(args.output)
+    return args
 
 def main():
-    output_path = Path('../output')
+    args = parse_command_line()
 
     print("Authenticating...")
     creds = get_credentials()
@@ -281,11 +291,25 @@ def main():
     print("Reading courses...")
     courses = list_all_material(service_classroom)
 
-    print("Retrieving file list...")
-    total = assign_dir_and_file_names(courses, output_path, service_drive)
+    if args.course:
+        courses = [c for c in courses if c.ID == args.course]
 
-    print(f"Downloading...")
-    download_missing_files(courses, output_path, total, service_drive, credentials=creds)
+    if args.material:
+        for c in courses:
+            c.courseWorkMaterials = [m for m in c.courseWorkMaterials if m.ID == args.material]
+        courses = [c for c in courses if len(c.courseWorkMaterials) > 0]
+
+    if args.list:
+        for course in courses:
+            print(f"Course {course.ID}: \"{course.title}\"")
+            for cwm in course.courseWorkMaterials:
+                print(f"   Material {cwm.ID}: \"{cwm.title}\"")
+    else:
+        print("Retrieving file list...")
+        total = assign_dir_and_file_names(courses, args.output, service_drive)
+
+        print(f"Downloading...")
+        download_missing_files(courses, args.output, total, service_drive, credentials=creds)
 
 
 if __name__ == '__main__':
