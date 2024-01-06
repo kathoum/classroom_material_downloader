@@ -178,6 +178,13 @@ def choose_mime_type(choices: List[str], document_type: str):
         return document_type
 
 
+def add_extension(filename: str, mimeType: str) -> str:
+    extensions = mimetypes.guess_all_extensions(mimeType or '')
+    if extensions and not any(ext for ext in extensions if filename.lower().endswith(ext.lower())):
+        return filename + mimetypes.guess_extension(mimeType)
+    else:
+        return filename
+
 def assign_file_names(materials: List[Material], service_drive):
     # Download file metadata from Google Drive
     for material in materials:
@@ -193,10 +200,7 @@ def assign_file_names(materials: List[Material], service_drive):
     for material in materials:
         if not material.size:
             material.mimeType = choose_mime_type(list(material.exportLinks), material.mimeType)
-        extensions = mimetypes.guess_all_extensions(material.mimeType or '')
-        if extensions:
-            if not any(ext for ext in extensions if material.filename.lower().endswith(ext.lower())):
-                material.filename += mimetypes.guess_extension(material.mimeType)
+        material.filename = add_extension(material.filename, material.mimeType)
     # Assign unique file names
     new_names = make_unique_names([material.filename for material in materials], has_extension=True)
     for material, new_name in zip(materials, new_names):
@@ -249,9 +253,27 @@ def download_file(material: Material, filepath: Path, service_drive, credentials
             data = r.content
         else:
             print("WARNING: unable to download material")
+    elif material.mimeType == 'application/vnd.google-apps.folder':
+        filelist = call_list_api(service_drive.files(), q=f"'{material.ID}' in parents")
+        childnames = [add_extension(child['name'], child['mimeType']) for child in filelist['files']]
+        childnames = make_unique_names(childnames, has_extension=True)
+        for i, (child, childname) in enumerate(zip(filelist['files'], childnames)):
+            print(f" {i+1}/{len(childnames)}")
+            if child['kind'] == 'drive#file':
+                childdata = service_drive.files().get_media(fileId=child['id']).execute()
+                filepath.mkdir(parents=True, exist_ok=True)
+                with open(filepath / childname, 'xb') as f:
+                    f.write(childdata)
+            else:
+                print(f"WARNING: unable to download folder item {child}")
+        return
     else:
         # File must be exported. Warning: there's a size limit on this conversion.
-        data = service.files().export_media(fileId=material.ID, mimeType=material.mimeType).execute()
+        try:
+            data = service_drive.files().export_media(fileId=material.ID, mimeType=material.mimeType).execute()
+        except Exception as ex:
+            print(f"WARNING: Skipping material {material}\n  Error: {ex}")
+            return
 
     filepath.parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, 'xb') as f:
