@@ -124,6 +124,7 @@ def title_to_filename(title):
 
 
 def make_unique_names(names: List[str], has_extension):
+    names = [title_to_filename(n) for n in names]
     counter = Counter(names)
     suffix = {name:1 for name in counter if counter[name] > 1}
     if not suffix:
